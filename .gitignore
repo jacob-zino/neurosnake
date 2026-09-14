@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+model/
+model_v1_200games/
+*.pth
