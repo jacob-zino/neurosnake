@@ -101,9 +101,23 @@ def load_checkpoint(agent, path='./model/checkpoint.pth'):
     if not os.path.exists(path):
         return None
     checkpoint = torch.load(path, weights_only=False)
-    agent.model.load_state_dict(checkpoint['model_state'])
-    agent.trainer.target_model.load_state_dict(checkpoint['target_model_state'])
-    agent.trainer.optimizer.load_state_dict(checkpoint['optimizer_state'])
+    n_in = agent.model.linear1.in_features
+    old_in = checkpoint['model_state']['linear1.weight'].shape[1]
+    agent.model.load_state_dict(_pad_inputs(checkpoint['model_state'], n_in))
+    agent.trainer.target_model.load_state_dict(_pad_inputs(checkpoint['target_model_state'], n_in))
     agent.n_games = checkpoint['n_games']
-    agent.memory.extend(checkpoint['memory'])
+    if old_in == n_in:
+        agent.trainer.optimizer.load_state_dict(checkpoint['optimizer_state'])
+        agent.memory.extend(checkpoint['memory'])
+    else:
+        # old replay memory has the old state shape, so it's dropped; it refills within a few games
+        print(f"Migrated checkpoint from {old_in} to {n_in} inputs (new inputs start at zero weight)")
     return checkpoint
+
+
+def _pad_inputs(state, n_in):
+    """Zero-pad linear1 for newly added state features, so old weights keep their learned behaviour."""
+    w = state['linear1.weight']
+    if w.shape[1] < n_in:
+        state['linear1.weight'] = torch.cat([w, torch.zeros(w.shape[0], n_in - w.shape[1])], dim=1)
+    return state

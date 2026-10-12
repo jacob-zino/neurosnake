@@ -16,6 +16,24 @@ CHECKPOINT_EVERY = 25
 NUM_EPISODES = 5000
 
 
+def free_space(game, start):
+    """Fraction of the board reachable from `start` (flood fill). Lets the agent see dead ends."""
+    # ponytail: treats the whole body as static walls, ignores that the tail moves away
+    if game.is_collision(start):
+        return 0.0
+    blocked = set(game.snake)
+    seen = {start}
+    stack = [start]
+    while stack:
+        p = stack.pop()
+        for q in (Point(p.x + BLOCK_SIZE, p.y), Point(p.x - BLOCK_SIZE, p.y),
+                  Point(p.x, p.y + BLOCK_SIZE), Point(p.x, p.y - BLOCK_SIZE)):
+            if q not in seen and q not in blocked and not game.is_collision(q):
+                seen.add(q)
+                stack.append(q)
+    return len(seen) / (game.play_cols * game.play_rows)
+
+
 class Agent:
 
     def __init__(self):
@@ -23,7 +41,7 @@ class Agent:
         self.epsilon = 0
         self.gamma = 0.9
         self.memory = deque(maxlen=MAX_MEMORY)
-        self.model = Linear_QNet(11, 256, 3)
+        self.model = Linear_QNet(14, 256, 3)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
     def get_state(self, game):
@@ -37,6 +55,12 @@ class Agent:
         dir_r = game.direction == Direction.RIGHT
         dir_u = game.direction == Direction.UP
         dir_d = game.direction == Direction.DOWN
+
+        # neighbour cell for each action: straight, right turn, left turn (same order as the danger bits)
+        ahead = {Direction.RIGHT: point_r, Direction.DOWN: point_d, Direction.LEFT: point_l, Direction.UP: point_u}
+        clock_wise = [Direction.RIGHT, Direction.DOWN, Direction.LEFT, Direction.UP]
+        idx = clock_wise.index(game.direction)
+        moves = [ahead[clock_wise[idx]], ahead[clock_wise[(idx + 1) % 4]], ahead[clock_wise[(idx - 1) % 4]]]
 
         state = [
             (dir_r and game.is_collision(point_r)) or
@@ -62,10 +86,10 @@ class Agent:
             game.food.x < game.head.x,
             game.food.x > game.head.x,
             game.food.y < game.head.y,
-            game.food.y > game.head.y
-        ]
+            game.food.y > game.head.y,
+        ] + [free_space(game, p) for p in moves]
 
-        return np.array(state, dtype=int)
+        return np.array(state, dtype=float)
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
