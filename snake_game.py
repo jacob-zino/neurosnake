@@ -28,11 +28,13 @@ APPLE_RED = (216, 62, 44)
 APPLE_STEM = (90, 150, 70)
 APPLE_LEAF = (110, 175, 90)
 
-BLOCK_SIZE = 20
+BLOCK_SIZE = 28
 BORDER_THICK = 10
 
-GAME_W = 640
-GAME_H = 480
+GAME_COLS = 22
+GAME_ROWS = 16
+GAME_W = GAME_COLS * BLOCK_SIZE + 2 * BORDER_THICK
+GAME_H = GAME_ROWS * BLOCK_SIZE + 2 * BORDER_THICK
 
 
 class SpeedControl:
@@ -75,13 +77,10 @@ class SnakeGameAI:
         self.frame_iteration = 0
 
     def _place_food(self):
-        col = random.randint(0, self.play_cols - 1)
-        row = random.randint(0, self.play_rows - 1)
-        x = self.play_left + col * BLOCK_SIZE
-        y = self.play_top + row * BLOCK_SIZE
-        self.food = Point(x, y)
-        if self.food in self.snake:
-            self._place_food()
+        body = set(self.snake)
+        free = [Point(self.play_left + c * BLOCK_SIZE, self.play_top + r * BLOCK_SIZE)
+                for r in range(self.play_rows) for c in range(self.play_cols)]
+        self.food = random.choice([p for p in free if p not in body])
 
     def play_step(self, action):
         self.frame_iteration += 1
@@ -106,6 +105,11 @@ class SnakeGameAI:
         if self.head == self.food:
             self.score += 1
             reward = 10
+            if len(self.snake) >= self.play_cols * self.play_rows:
+                self._update_ui()
+                self._show_win_screen()
+                game_over = True
+                return reward, game_over, self.score
             self._place_food()
         else:
             self.snake.pop()
@@ -192,6 +196,32 @@ class SnakeGameAI:
         self.display.blit(text, (14, 12))
 
         pygame.display.flip()
+
+    def _show_win_screen(self):
+        overlay = pygame.Surface((self.w, self.h))
+        overlay.set_alpha(180)
+        overlay.fill((0, 0, 0))
+        self.display.blit(overlay, (0, 0))
+
+        big_font = pygame.font.SysFont('arial', 36, bold=True)
+        small_font = pygame.font.SysFont('arial', 20)
+
+        win_text = big_font.render("BOARD COMPLETE!", True, (255, 255, 255))
+        score_text = small_font.render(f"Score: {self.score}", True, (255, 255, 255))
+        hint_text = small_font.render("Continuing training...", True, (200, 200, 200))
+
+        self.display.blit(win_text, win_text.get_rect(center=(self.w / 2, self.h / 2 - 30)))
+        self.display.blit(score_text, score_text.get_rect(center=(self.w / 2, self.h / 2 + 10)))
+        self.display.blit(hint_text, hint_text.get_rect(center=(self.w / 2, self.h / 2 + 45)))
+
+        pygame.display.flip()
+
+        for _ in range(60):  # ~2s at 30fps, keep pumping events so the window stays responsive
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    quit()
+            self.clock.tick(30)
 
     def _move(self, action):
         clock_wise = [Direction.RIGHT, Direction.DOWN, Direction.LEFT, Direction.UP]
