@@ -177,9 +177,10 @@ class SnakeGameAI:
         else:
             eye_offsets = [(-5, 3), (5, 3)]
 
+        s = BLOCK_SIZE / 20  # offsets were designed for 20px cells
         for ox, oy in eye_offsets:
-            ex, ey = cx + ox, cy + oy
-            pygame.draw.rect(self.display, SNAKE_EYE_WHITE, pygame.Rect(ex - 3, ey - 3, 6, 6))
+            ex, ey = cx + ox * s, cy + oy * s
+            pygame.draw.rect(self.display, SNAKE_EYE_WHITE, pygame.Rect(ex - 3 * s, ey - 3 * s, 6 * s, 6 * s))
 
     def _draw_apple(self):
         x, y = self.food.x, self.food.y
