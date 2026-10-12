@@ -17,17 +17,17 @@ MIN_EPSILON = 2  # out of 200 -> ~1% random moves forever, so it keeps exploring
 NUM_EPISODES = 5000
 
 
-def free_space(game, start):
-    """Fraction of the board reachable from `start` (flood fill). Lets the agent see dead ends."""
-    # ponytail: treats the whole body as static walls, ignores that the tail moves away
-    blocked = set(game.snake)
+SAFETY_MASK = True  # never pick a move that cuts off the tail if a move that doesn't exists (hand-coded rule, not learned)
 
+
+def _flood(game, start, blocked):
+    """Cells reachable from `start` without crossing `blocked` or the walls (empty if start itself is blocked)."""
     def free(q):
         return (q not in blocked and game.play_left <= q.x < game.play_right
                 and game.play_top <= q.y < game.play_bottom)
 
     if not free(start):
-        return 0.0
+        return set()
     seen = {start}
     stack = [start]
     while stack:
@@ -37,7 +37,23 @@ def free_space(game, start):
             if q not in seen and free(q):
                 seen.add(q)
                 stack.append(q)
-    return len(seen) / (game.play_cols * game.play_rows)
+    return seen
+
+
+def free_space(game, start):
+    """Fraction of the board reachable from `start` (flood fill). Lets the agent see dead ends."""
+    # treats the whole body as static walls; tail_reachable covers the moving tail
+    return len(_flood(game, start, set(game.snake))) / (game.play_cols * game.play_rows)
+
+
+def tail_reachable(game, start):
+    """1.0 if, after moving the head to `start`, the head can still reach the tail.
+    Following your own tail is how a long snake survives: a pocket that looks closed opens as the tail moves."""
+    if start in set(game.snake):  # matches the game: moving into the current tail cell is a collision
+        return 0.0
+    body = [start] + (game.snake if start == game.food else game.snake[:-1])  # tail stays put when eating
+    tail = body[-1]
+    return 1.0 if tail in _flood(game, start, set(body[1:-1])) else 0.0
 
 
 class Agent:
@@ -47,7 +63,7 @@ class Agent:
         self.epsilon = 0
         self.gamma = 0.95
         self.memory = deque(maxlen=MAX_MEMORY)
-        self.model = Linear_QNet(14, 256, 3)
+        self.model = Linear_QNet(17, 256, 3)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
     def get_state(self, game):
@@ -93,7 +109,7 @@ class Agent:
             game.food.x > game.head.x,
             game.food.y < game.head.y,
             game.food.y > game.head.y,
-        ] + [free_space(game, p) for p in moves]
+        ] + [free_space(game, p) for p in moves] + [tail_reachable(game, p) for p in moves]
 
         return np.array(state, dtype=float)
 
@@ -115,14 +131,16 @@ class Agent:
     def get_action(self, state):
         self.epsilon = max(80 - self.n_games, MIN_EPSILON)
         final_move = [0, 0, 0]
+        safe = [i for i in range(3) if state[14 + i]] if SAFETY_MASK else []  # tail_reachable bits
         if random.randint(0, 200) < self.epsilon:
-            move = random.randint(0, 2)
-            final_move[move] = 1
+            move = random.choice(safe) if safe else random.randint(0, 2)
         else:
             state0 = torch.tensor(state, dtype=torch.float)
             prediction = self.model(state0)
             move = torch.argmax(prediction).item()
-            final_move[move] = 1
+            if safe and move not in safe:
+                move = max(safe, key=lambda i: prediction[i].item())
+        final_move[move] = 1
 
         return final_move
 
