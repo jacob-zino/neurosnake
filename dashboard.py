@@ -106,7 +106,7 @@ class Dashboard:
 
     def _on_speed_change(self, value):
         fps = int(float(value))
-        self.speed_value_var.set(f"{fps} fps")
+        self.speed_value_var.set("turbo (no render)" if fps >= 200 else f"{fps} fps")
         if self.speed_control is not None:
             self.speed_control.value = fps
 

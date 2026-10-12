@@ -12,6 +12,7 @@ MAX_MEMORY = 100_000
 BATCH_SIZE = 1000
 LR = 0.001
 CHECKPOINT_EVERY = 25
+MIN_EPSILON = 2  # out of 200 -> ~1% random moves forever, so it keeps exploring
 
 NUM_EPISODES = 5000
 
@@ -19,16 +20,21 @@ NUM_EPISODES = 5000
 def free_space(game, start):
     """Fraction of the board reachable from `start` (flood fill). Lets the agent see dead ends."""
     # ponytail: treats the whole body as static walls, ignores that the tail moves away
-    if game.is_collision(start):
-        return 0.0
     blocked = set(game.snake)
+
+    def free(q):
+        return (q not in blocked and game.play_left <= q.x < game.play_right
+                and game.play_top <= q.y < game.play_bottom)
+
+    if not free(start):
+        return 0.0
     seen = {start}
     stack = [start]
     while stack:
         p = stack.pop()
         for q in (Point(p.x + BLOCK_SIZE, p.y), Point(p.x - BLOCK_SIZE, p.y),
                   Point(p.x, p.y + BLOCK_SIZE), Point(p.x, p.y - BLOCK_SIZE)):
-            if q not in seen and q not in blocked and not game.is_collision(q):
+            if q not in seen and free(q):
                 seen.add(q)
                 stack.append(q)
     return len(seen) / (game.play_cols * game.play_rows)
@@ -39,7 +45,7 @@ class Agent:
     def __init__(self):
         self.n_games = 0
         self.epsilon = 0
-        self.gamma = 0.9
+        self.gamma = 0.95
         self.memory = deque(maxlen=MAX_MEMORY)
         self.model = Linear_QNet(14, 256, 3)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
@@ -107,7 +113,7 @@ class Agent:
         self.trainer.train_step(state, action, reward, next_state, done)
 
     def get_action(self, state):
-        self.epsilon = 80 - self.n_games
+        self.epsilon = max(80 - self.n_games, MIN_EPSILON)
         final_move = [0, 0, 0]
         if random.randint(0, 200) < self.epsilon:
             move = random.randint(0, 2)
@@ -138,10 +144,10 @@ def run_training_loop(update_queue, speed_control):
         total_score = checkpoint['total_score']
         print(f"Resumed from checkpoint: game {agent.n_games}, record {record}")
         for i in range(len(scores)):
-            update_queue.put((scores[i], i + 1, max(80 - (i + 1), 0), record, len(agent.memory)))
+            update_queue.put((scores[i], i + 1, max(80 - (i + 1), MIN_EPSILON), record, len(agent.memory)))
 
+    state_old = agent.get_state(game)
     while agent.n_games < NUM_EPISODES:
-        state_old = agent.get_state(game)
         final_move = agent.get_action(state_old)
 
         reward, done, score = game.play_step(final_move)
@@ -149,9 +155,11 @@ def run_training_loop(update_queue, speed_control):
 
         agent.train_short_memory(state_old, final_move, reward, state_new, done)
         agent.remember(state_old, final_move, reward, state_new, done)
+        state_old = state_new  # next step starts from here; recomputed below after a reset
 
         if done:
             game.reset()
+            state_old = agent.get_state(game)
             agent.n_games += 1
             agent.train_long_memory()
 

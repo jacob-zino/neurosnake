@@ -30,6 +30,7 @@ APPLE_LEAF = (110, 175, 90)
 
 BLOCK_SIZE = 28
 BORDER_THICK = 10
+TURBO_SPEED = 200  # speed slider at max = skip rendering and the fps cap
 
 GAME_COLS = 22
 GAME_ROWS = 16
@@ -116,10 +117,14 @@ class SnakeGameAI:
             # reward shaping: small nudge for moving toward/away from food,
             # so every step carries some learning signal, not just eat/die
             new_dist = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
-            reward = 1 if new_dist < old_dist else -1
+            # kept small so it never outweighs detouring around a dead end
+            reward = 0.1 if new_dist < old_dist else -0.1
 
-        self._update_ui()
-        self.clock.tick(self.speed_control.value)
+        if self.speed_control.value < TURBO_SPEED:
+            self._update_ui()
+            self.clock.tick(self.speed_control.value)
+        elif self.frame_iteration % 100 == 0:  # turbo: no fps cap, just an occasional frame
+            self._update_ui()
 
         return reward, game_over, self.score
 
